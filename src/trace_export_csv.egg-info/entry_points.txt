@@ -1,0 +1,2 @@
+[console_scripts]
+trace-export-csv = trace_export_csv.__main__:main
