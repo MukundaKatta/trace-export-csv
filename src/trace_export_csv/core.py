@@ -28,9 +28,14 @@ def _load_jsonl(source: str | Path) -> list[dict[str, Any]]:
         if not line:
             continue
         try:
-            events.append(json.loads(line))
+            obj = json.loads(line)
         except json.JSONDecodeError as e:
             raise TraceExportError(f"{p}:{lineno}: invalid JSON: {e}") from e
+        if not isinstance(obj, dict):
+            raise TraceExportError(
+                f"{p}:{lineno}: expected a JSON object, got {type(obj).__name__}"
+            )
+        events.append(obj)
     return events
 
 
@@ -108,6 +113,9 @@ def export_csv(
 
     Returns:
         ExportResult with row_count, columns, and csv_text (if no dest).
+
+    Raises:
+        TraceExportError: if any element of ``events`` is not a dict.
     """
     mapped_fields = fields if fields is not None else _DEFAULT_FIELDS
 
@@ -115,7 +123,11 @@ def export_csv(
     extra_cols: list[str] = list(extra_fields or [])
     if include_all:
         all_keys: set[str] = set()
-        for event in events:
+        for index, event in enumerate(events):
+            if not isinstance(event, dict):
+                raise TraceExportError(
+                    f"event {index} is not a dict: got {type(event).__name__}"
+                )
             all_keys.update(event.keys())
         mapped_names = {col for col, _ in mapped_fields}
         for key in sorted(all_keys):
@@ -128,7 +140,11 @@ def export_csv(
     writer = csv.writer(output, lineterminator="\n")
     writer.writerow(columns)
 
-    for event in events:
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            raise TraceExportError(
+                f"event {index} is not a dict: got {type(event).__name__}"
+            )
         row: list[str] = []
         for col, keys in mapped_fields:
             row.append(_pick(event, keys))
@@ -153,6 +169,21 @@ def export_file(
     dest: str | Path,
     **kwargs: Any,
 ) -> ExportResult:
-    """Load a JSONL file and export it to a CSV file."""
+    """Load a JSONL file and export it to a CSV file.
+
+    Args:
+        source: path to the input ``.jsonl`` trace file. Blank lines are
+            skipped; every non-blank line must be a JSON object.
+        dest: path to the output CSV file.
+        **kwargs: forwarded to :func:`export_csv` (``fields``,
+            ``extra_fields``, ``include_all``).
+
+    Returns:
+        ExportResult with row_count and columns.
+
+    Raises:
+        TraceExportError: if the file is missing, a line is not valid JSON,
+            or a line is valid JSON but not an object.
+    """
     events = _load_jsonl(source)
     return export_csv(events, dest, **kwargs)
